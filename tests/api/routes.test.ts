@@ -46,8 +46,11 @@ describe("cron auth & keyset-paginated domain API", () => {
       tld: ".ai",
       minGrowth: 20,
       cursor: { sortValue: 42.75, id: 98123 },
+      limit: Number("abc"),
     });
     expect(spec.hasKeysetPredicate).toBe(true);
     expect(spec.usesOffset).toBe(false);
+    expect(spec.limit).toBe(50);
+    expect(spec.nullSafeSort).toBe(true);
   });
 });

@@ -43,6 +43,10 @@ export const domains = pgTable(
     predicted12mGrowthPct: doublePrecision("predicted_12m_growth_pct"),
     net5yrRoiMultiple: doublePrecision("net_5yr_roi_multiple"),
     confidence: doublePrecision("confidence"),
+    topDrivers: jsonb("top_drivers")
+      .$type<FeatureContribution[]>()
+      .notNull()
+      .default([]),
     watched: boolean("watched").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -62,6 +66,12 @@ export const domains = pgTable(
       table.id
     ),
     index("idx_domains_status_tld").on(table.status, table.tld, table.id),
+    index("idx_domains_status_tld_growth").on(
+      table.status,
+      table.tld,
+      table.predicted12mGrowthPct,
+      table.id
+    ),
   ]
 );
 

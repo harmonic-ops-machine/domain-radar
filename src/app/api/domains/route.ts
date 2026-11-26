@@ -6,6 +6,7 @@ import {
   buildDomainWhereClause,
   decodeCursor,
   encodeCursor,
+  NULL_GROWTH_SENTINEL,
 } from "./query";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +39,10 @@ export async function GET(req: Request) {
     .select()
     .from(domains)
     .where(spec.where)
-    .orderBy(desc(domains.predicted12mGrowthPct), desc(domains.id))
+    .orderBy(
+      sql`COALESCE(${domains.predicted12mGrowthPct}, ${NULL_GROWTH_SENTINEL}) DESC`,
+      desc(domains.id)
+    )
     .limit(spec.limit + 1);
 
   const hasMore = rows.length > spec.limit;
@@ -47,7 +51,7 @@ export async function GET(req: Request) {
   const nextCursor =
     hasMore && last
       ? encodeCursor({
-          sortValue: last.predicted12mGrowthPct ?? 0,
+          sortValue: last.predicted12mGrowthPct ?? NULL_GROWTH_SENTINEL,
           id: last.id,
         })
       : null;
@@ -58,7 +62,8 @@ export async function GET(req: Request) {
   const approxRow = (
     countRes as unknown as { rows?: Array<{ approx?: string | number }> }
   ).rows?.[0];
-  const totalApprox = Number(approxRow?.approx ?? items.length);
+  const approxNum = Number(approxRow?.approx ?? -1);
+  const totalApprox = approxNum >= 0 ? approxNum : items.length;
 
   return NextResponse.json({
     items,

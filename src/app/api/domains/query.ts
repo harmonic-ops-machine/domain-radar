@@ -1,6 +1,8 @@
-import { and, eq, gte, ilike, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, gte, ilike, sql, type SQL } from "drizzle-orm";
 import { domains } from "@/db/schema";
 import type { DomainCursor } from "@/lib/types";
+
+export const NULL_GROWTH_SENTINEL = -999999;
 
 export interface DomainFilterParams {
   status?: string | null;
@@ -17,6 +19,7 @@ export interface DomainQuerySpec {
   limit: number;
   hasKeysetPredicate: boolean;
   usesOffset: false;
+  nullSafeSort: true;
 }
 
 export function encodeCursor(cursor: DomainCursor): string {
@@ -46,6 +49,11 @@ export function decodeCursor(raw: string | null): DomainCursor | null {
   }
 }
 
+export function sanitizeLimit(raw: number | undefined, fallback = 50, max = 100): number {
+  if (raw === undefined || !Number.isFinite(raw)) return fallback;
+  return Math.max(1, Math.min(Math.floor(raw), max));
+}
+
 export function buildDomainWhereClause(
   params: DomainFilterParams
 ): DomainQuerySpec {
@@ -57,7 +65,11 @@ export function buildDomainWhereClause(
   if (params.tld && params.tld !== "all") {
     predicates.push(eq(domains.tld, params.tld));
   }
-  if (params.minGrowth !== null && params.minGrowth !== undefined && Number.isFinite(params.minGrowth)) {
+  if (
+    params.minGrowth !== null &&
+    params.minGrowth !== undefined &&
+    Number.isFinite(params.minGrowth)
+  ) {
     predicates.push(gte(domains.predicted12mGrowthPct, params.minGrowth));
   }
   if (params.q && params.q.trim().length > 0) {
@@ -72,22 +84,19 @@ export function buildDomainWhereClause(
   let hasKeysetPredicate = false;
   if (params.cursor) {
     hasKeysetPredicate = true;
-    const keyset = or(
-      lt(domains.predicted12mGrowthPct, params.cursor.sortValue),
-      and(
-        eq(domains.predicted12mGrowthPct, params.cursor.sortValue),
-        lt(domains.id, params.cursor.id)
-      )
+    const growthExpr = sql`COALESCE(${domains.predicted12mGrowthPct}, ${NULL_GROWTH_SENTINEL})`;
+    predicates.push(
+      sql`(${growthExpr} < ${params.cursor.sortValue} OR (${growthExpr} = ${params.cursor.sortValue} AND ${domains.id} < ${params.cursor.id}))`
     );
-    if (keyset) predicates.push(keyset);
   }
 
-  const limit = Math.max(1, Math.min(params.limit ?? 50, 100));
+  const limit = sanitizeLimit(params.limit, 50, 100);
 
   return {
     where: predicates.length > 0 ? and(...predicates) : undefined,
     limit,
     hasKeysetPredicate,
     usesOffset: false,
+    nullSafeSort: true,
   };
 }

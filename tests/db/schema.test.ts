@@ -19,6 +19,8 @@ describe("Drizzle schema & dual-driver factory", () => {
     expect(indexNames).toContain("idx_domains_due_claim");
     expect(indexNames).toContain("idx_domains_growth_cursor");
     expect(indexNames).toContain("idx_domains_status_tld");
+    expect(indexNames).toContain("idx_domains_status_tld_growth");
+    expect(domainCfg.columns.map((c) => c.name)).toContain("top_drivers");
 
     const snapCfg = getTableConfig(domainSnapshots);
     expect(snapCfg.indexes.map((i) => i.config.name)).toContain("idx_snapshots_domain_obs");

@@ -44,4 +44,43 @@ describe("domain normalization & 100k chunked bulk upsert", () => {
       chunksWritten: 5,
     });
   });
+
+  it("extracts tokens/archetype and populates patterns + domain_patterns on upsert", async () => {
+    const tablesInserted: string[] = [];
+    const domainRowsWritten: Array<Record<string, unknown>> = [];
+    const fakeDb = {
+      insert: vi.fn((table: { [key: symbol]: string }) => {
+        const name = String(
+          Object.values(table).find((v) => typeof v === "string") ?? "unknown"
+        );
+        tablesInserted.push(name);
+        return {
+          values: vi.fn((rows: Array<Record<string, unknown>>) => {
+            if (rows[0] && "fqdn" in rows[0]) {
+              domainRowsWritten.push(...rows);
+              return {
+                onConflictDoUpdate: vi.fn(() => ({
+                  returning: vi.fn().mockResolvedValue(
+                    rows.map((r, i) => ({
+                      id: i + 1,
+                      sld: r.sld,
+                      tld: r.tld,
+                    }))
+                  ),
+                })),
+              };
+            }
+            return {
+              onConflictDoNothing: vi.fn().mockResolvedValue(undefined),
+            };
+          }),
+        };
+      }),
+    };
+
+    await bulkUpsertDomains(fakeDb as never, ["truthledger.ai"]);
+    expect(domainRowsWritten[0].tokens).toEqual(["truth", "ledger"]);
+    expect(domainRowsWritten[0].archetype).toBe("COMPOUND_2WORD");
+    expect(tablesInserted.length).toBeGreaterThanOrEqual(3); // domains + patterns + domain_patterns
+  });
 });

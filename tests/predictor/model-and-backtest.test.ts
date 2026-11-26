@@ -101,4 +101,25 @@ describe("explainable value-increase predictor & backtester", () => {
     expect(report.beatsBaseline).toBe(true);
     expect(report.mapePct).toBeLessThan(report.baselineMapePct);
   });
+
+  it("does not let a broad tld:* pattern inflate confidence for a tiny n=2 specific prefix pattern", () => {
+    const res = scoreDomain({
+      domainId: 12,
+      fqdn: "rareflint.ai",
+      sld: "rareflint",
+      tld: ".ai",
+      tokens: ["rare", "flint"],
+      archetype: "COMPOUND_2WORD",
+      hasHyphen: false,
+      hasDigit: false,
+      fiveYrTcoUsd: 424.73,
+      comCounterpartRegistered: false,
+      snapshotAgeDays: 1,
+      matchedPatterns: [
+        { patternKey: "tld:.ai", totalDomains: 12500, availableCount: 4000, registeredCount: 8500, absorption7d: 0.01, absorption30d: 0.04, shrunkAbsorption30d: 0.04, dropRate30d: 0.01, scarcityRatio: 0.68, compPriceSlope: 0.05, trendZScore: 0.2, momentumScore: 45 },
+        { patternKey: "prefix:rare:.ai", totalDomains: 2, availableCount: 1, registeredCount: 1, absorption7d: 0.5, absorption30d: 0.5, shrunkAbsorption30d: 0.08, dropRate30d: 0, scarcityRatio: 0.5, compPriceSlope: 0, trendZScore: 0, momentumScore: 30 },
+      ],
+    });
+    expect(res.confidence).toBeLessThan(0.25);
+  });
 });

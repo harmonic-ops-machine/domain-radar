@@ -111,7 +111,10 @@ async function loadDashboardData() {
       db
         .select()
         .from(domains)
-        .orderBy(desc(domains.predicted12mGrowthPct), desc(domains.id))
+        .orderBy(
+          sql`COALESCE(${domains.predicted12mGrowthPct}, -999999) DESC`,
+          desc(domains.id)
+        )
         .limit(51),
       db
         .select()
@@ -134,7 +137,7 @@ async function loadDashboardData() {
     const nextCursor =
       hasMore && last
         ? encodeCursor({
-            sortValue: last.predicted12mGrowthPct ?? 0,
+            sortValue: last.predicted12mGrowthPct ?? -999999,
             id: last.id,
           })
         : null;
@@ -142,10 +145,11 @@ async function loadDashboardData() {
     const approxRow = (
       approxRes as unknown as { rows?: Array<{ approx?: string | number }> }
     ).rows?.[0];
+    const approxNum = Number(approxRow?.approx ?? -1);
 
     return {
       connected: true,
-      totalTracked: Number(approxRow?.approx ?? sliced.length),
+      totalTracked: approxNum >= 0 ? approxNum : sliced.length,
       availableCount: sliced.filter((d) => d.status === "available").length,
       lastRunStatus: latestRuns[0]
         ? `${latestRuns[0].status} (${latestRuns[0].claimedCount} claimed)`
@@ -161,6 +165,7 @@ async function loadDashboardData() {
         predicted12mGrowthPct: d.predicted12mGrowthPct,
         net5yrRoiMultiple: d.net5yrRoiMultiple,
         confidence: d.confidence,
+        topDrivers: d.topDrivers ?? [],
       })),
       initialNextCursor: nextCursor,
       initialPatterns: topPatterns,

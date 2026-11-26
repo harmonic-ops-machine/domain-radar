@@ -1,6 +1,6 @@
-import { eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import type { Database } from "@/db";
-import { domains, domainSnapshots, workerRuns } from "@/db/schema";
+import { domainSnapshots, workerRuns } from "@/db/schema";
 import { probeDomain, type ProbeOutcome } from "@/lib/prober/probe-domain";
 import { RegistryRateGuard } from "@/lib/prober/rdap";
 import type { DomainStatus, RefreshTier, TldCode } from "@/lib/types";
@@ -9,6 +9,7 @@ import { computeNextCheckAt, computeRefreshTier } from "./scheduler";
 const DEFAULT_BUDGET_MS = 240_000;
 const DEFAULT_BATCH_SIZE = 40;
 const DEFAULT_LEASE_MS = 360_000;
+const DEFAULT_CONCURRENCY = 8;
 const HEARTBEAT_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface ClaimedDomain {
@@ -32,6 +33,7 @@ export interface WorkerTickOptions {
   budgetMs?: number;
   batchSize?: number;
   leaseMs?: number;
+  concurrency?: number;
   nowFn?: () => number;
   guard?: RegistryRateGuard;
   claimBatchFn?: (limit: number, leaseMs: number) => Promise<ClaimedDomain[]>;
@@ -78,7 +80,8 @@ export async function claimNextBatch(
 ): Promise<ClaimedDomain[]> {
   const query = buildClaimBatchSql(limit, leaseMs);
   const res = await db.execute(sql.raw(query));
-  const rows = (res as unknown as { rows?: Array<Record<string, unknown>> }).rows ?? [];
+  const rows =
+    (res as unknown as { rows?: Array<Record<string, unknown>> }).rows ?? [];
   return rows.map((row) => ({
     id: Number(row.id),
     fqdn: String(row.fqdn),
@@ -89,7 +92,8 @@ export async function claimNextBatch(
     lastRdapAt: row.last_rdap_at ? new Date(String(row.last_rdap_at)) : null,
     watched: Boolean(row.watched),
     predicted12mGrowthPct:
-      row.predicted_12m_growth_pct !== null && row.predicted_12m_growth_pct !== undefined
+      row.predicted_12m_growth_pct !== null &&
+      row.predicted_12m_growth_pct !== undefined
         ? Number(row.predicted_12m_growth_pct)
         : null,
   }));
@@ -100,6 +104,8 @@ async function defaultCommitBatch(
   records: ProbedDomainRecord[],
   now: Date
 ): Promise<void> {
+  if (records.length === 0) return;
+
   const snapshotsToInsert: Array<{
     domainId: number;
     observedAt: Date;
@@ -110,7 +116,7 @@ async function defaultCommitBatch(
     changeReason: string;
   }> = [];
 
-  for (const { domain, outcome } of records) {
+  const updateTuples = records.map(({ domain, outcome }) => {
     const isError = outcome.source === "error_preserved";
     const consecutiveErrors = isError ? domain.consecutiveErrors + 1 : 0;
     const nextTier = computeRefreshTier({
@@ -125,22 +131,9 @@ async function defaultCommitBatch(
       now,
     });
 
-    await db
-      .update(domains)
-      .set({
-        status: outcome.status,
-        tier: nextTier,
-        registrar: outcome.registrar ?? undefined,
-        expiresAt: outcome.expiresAt ?? undefined,
-        lastCheckedAt: now,
-        lastRdapAt: outcome.source === "rdap" ? now : domain.lastRdapAt,
-        nextCheckAt,
-        leaseUntil: null,
-        consecutiveErrors,
-        lastError: outcome.errorCode,
-        updatedAt: now,
-      })
-      .where(eq(domains.id, domain.id));
+    // Clear stale registrar/expires_at when transitioning to available
+    const clearReg = outcome.source === "rdap" && outcome.status === "available";
+    const lastRdapAt = outcome.source === "rdap" ? now : domain.lastRdapAt;
 
     const needsHeartbeat =
       !isError &&
@@ -152,13 +145,46 @@ async function defaultCommitBatch(
         domainId: domain.id,
         observedAt: now,
         status: outcome.status,
-        registrar: outcome.registrar,
-        expiresAt: outcome.expiresAt,
+        registrar: clearReg ? null : outcome.registrar,
+        expiresAt: clearReg ? null : outcome.expiresAt,
         source: outcome.source,
         changeReason: outcome.changed ? "status_change" : "heartbeat_7d",
       });
     }
-  }
+
+    return sql`(
+      ${domain.id}::bigint,
+      ${outcome.status}::text,
+      ${nextTier}::text,
+      ${clearReg}::boolean,
+      ${outcome.registrar}::text,
+      ${outcome.expiresAt ? outcome.expiresAt.toISOString() : null}::timestamptz,
+      ${lastRdapAt ? lastRdapAt.toISOString() : null}::timestamptz,
+      ${nextCheckAt.toISOString()}::timestamptz,
+      ${consecutiveErrors}::int,
+      ${outcome.errorCode}::text
+    )`;
+  });
+
+  await db.execute(sql`
+    UPDATE domains AS d
+    SET
+      status = v.status,
+      tier = v.tier,
+      registrar = CASE WHEN v.clear_reg THEN NULL ELSE COALESCE(v.registrar, d.registrar) END,
+      expires_at = CASE WHEN v.clear_reg THEN NULL ELSE COALESCE(v.expires_at, d.expires_at) END,
+      last_checked_at = ${now.toISOString()}::timestamptz,
+      last_rdap_at = v.last_rdap_at,
+      next_check_at = v.next_check_at,
+      lease_until = NULL,
+      consecutive_errors = v.consecutive_errors,
+      last_error = v.last_error,
+      updated_at = ${now.toISOString()}::timestamptz
+    FROM (VALUES ${sql.join(updateTuples, sql`, `)}) AS v(
+      id, status, tier, clear_reg, registrar, expires_at, last_rdap_at, next_check_at, consecutive_errors, last_error
+    )
+    WHERE d.id = v.id
+  `);
 
   if (snapshotsToInsert.length > 0) {
     await db.insert(domainSnapshots).values(snapshotsToInsert);
@@ -172,6 +198,7 @@ export async function processWorkerTick(
   const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS;
   const batchSize = opts?.batchSize ?? DEFAULT_BATCH_SIZE;
   const leaseMs = opts?.leaseMs ?? DEFAULT_LEASE_MS;
+  const concurrency = Math.max(1, opts?.concurrency ?? DEFAULT_CONCURRENCY);
   const nowFn = opts?.nowFn ?? (() => Date.now());
   const guard = opts?.guard ?? new RegistryRateGuard();
 
@@ -182,9 +209,11 @@ export async function processWorkerTick(
   let rateLimited = 0;
   let errors = 0;
   let stoppedForBudget = false;
+  let fatalNote: string | null = null;
 
   const claimFn =
-    opts?.claimBatchFn ?? ((lim: number, lease: number) => claimNextBatch(db, lim, lease));
+    opts?.claimBatchFn ??
+    ((lim: number, lease: number) => claimNextBatch(db, lim, lease));
   const probeFn =
     opts?.probeFn ??
     ((d: ClaimedDomain) =>
@@ -199,38 +228,82 @@ export async function processWorkerTick(
       ));
   const commitFn =
     opts?.commitBatchFn ??
-    ((recs: ProbedDomainRecord[]) => defaultCommitBatch(db, recs, new Date(nowFn())));
+    ((recs: ProbedDomainRecord[]) =>
+      defaultCommitBatch(db, recs, new Date(nowFn())));
 
-  while (true) {
-    if (nowFn() - startedAt >= budgetMs) {
-      stoppedForBudget = true;
-      break;
-    }
+  try {
+    while (true) {
+      if (nowFn() - startedAt >= budgetMs) {
+        stoppedForBudget = true;
+        break;
+      }
 
-    const batch = await claimFn(batchSize, leaseMs);
-    if (batch.length === 0) break;
+      const batch = await claimFn(batchSize, leaseMs);
+      if (batch.length === 0) break;
 
-    claimed += batch.length;
+      claimed += batch.length;
 
-    const records: ProbedDomainRecord[] = [];
-    for (const domain of batch) {
-      const outcome = await probeFn(domain);
-      records.push({ domain, outcome });
-      updated += 1;
-      if (outcome.changed) changed += 1;
-      if (outcome.httpStatus === 429 || outcome.errorCode === "CIRCUIT_OPEN") {
-        rateLimited += 1;
-      } else if (outcome.source === "error_preserved") {
-        errors += 1;
+      const records: ProbedDomainRecord[] = [];
+      let cursor = 0;
+
+      const workers = Array.from(
+        { length: Math.min(concurrency, batch.length) },
+        async () => {
+          while (cursor < batch.length) {
+            if (nowFn() - startedAt >= budgetMs) {
+              stoppedForBudget = true;
+              return;
+            }
+            const idx = cursor++;
+            const domain = batch[idx];
+            try {
+              const outcome = await probeFn(domain);
+              records.push({ domain, outcome });
+              updated += 1;
+              if (outcome.changed) changed += 1;
+              if (
+                outcome.httpStatus === 429 ||
+                outcome.errorCode === "CIRCUIT_OPEN"
+              ) {
+                rateLimited += 1;
+              } else if (outcome.source === "error_preserved") {
+                errors += 1;
+              }
+            } catch (err) {
+              errors += 1;
+              records.push({
+                domain,
+                outcome: {
+                  fqdn: domain.fqdn,
+                  status: domain.status,
+                  previousStatus: domain.status,
+                  changed: false,
+                  source: "error_preserved",
+                  registrar: null,
+                  expiresAt: null,
+                  httpStatus: null,
+                  errorCode:
+                    err instanceof Error ? err.message : "PROBE_EXCEPTION",
+                  retryAfterSeconds: null,
+                },
+              });
+            }
+          }
+        }
+      );
+
+      await Promise.all(workers);
+      if (records.length > 0) {
+        await commitFn(records);
+      }
+
+      if (stoppedForBudget || nowFn() - startedAt >= budgetMs) {
+        stoppedForBudget = true;
+        break;
       }
     }
-
-    await commitFn(records);
-
-    if (nowFn() - startedAt >= budgetMs) {
-      stoppedForBudget = true;
-      break;
-    }
+  } catch (err) {
+    fatalNote = err instanceof Error ? err.message : String(err);
   }
 
   const elapsedMs = nowFn() - startedAt;
@@ -260,7 +333,8 @@ export async function processWorkerTick(
         rateLimitedCount: rateLimited,
         errorCount: errors,
         stoppedForBudget,
-        status: "completed",
+        status: fatalNote ? "failed" : "completed",
+        notes: fatalNote,
       })
       .returning({ id: workerRuns.id });
     summary.runId = inserted?.id ?? "";

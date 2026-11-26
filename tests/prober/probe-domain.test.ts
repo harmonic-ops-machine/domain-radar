@@ -93,4 +93,25 @@ describe("2-stage DNS + authoritative RDAP prober", () => {
     expect(second.errorCode).toBe("CIRCUIT_OPEN");
     expect(fetch429).toHaveBeenCalledTimes(1);
   });
+
+  it("clamps abusive Retry-After values to at most 3600 seconds", async () => {
+    const guard = new RegistryRateGuard();
+    const fetchHuge = vi.fn().mockResolvedValue(
+      new Response("slow down", {
+        status: 429,
+        headers: { "Retry-After": "9999999" },
+      })
+    );
+    const out = await probeDomain(
+      { fqdn: "truthreal.io", tld: ".io", previousStatus: "unknown", lastRdapAt: null },
+      {
+        dnsResolveNs: async () => {
+          throw Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" });
+        },
+        fetchFn: fetchHuge,
+        guard,
+      }
+    );
+    expect(out.retryAfterSeconds).toBeLessThanOrEqual(3600);
+  });
 });

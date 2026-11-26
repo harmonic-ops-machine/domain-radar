@@ -80,7 +80,8 @@ export function buildFeatureVector(input: FeatureInput): DomainFeatureVector {
   let compPriceSlope = 0;
   let trendZScore = 0;
   let totalWeight = 0;
-  let effectiveSampleSize = 0;
+  let maxSpecificSampleSize = 0;
+  let maxAnySampleSize = 0;
 
   for (const p of patterns) {
     const w = Math.max(1, Math.log10(p.totalDomains + 1));
@@ -92,8 +93,14 @@ export function buildFeatureVector(input: FeatureInput): DomainFeatureVector {
     compPriceSlope += p.compPriceSlope * w;
     trendZScore += p.trendZScore * w;
     totalWeight += w;
-    effectiveSampleSize = Math.max(effectiveSampleSize, p.totalDomains);
+    maxAnySampleSize = Math.max(maxAnySampleSize, p.totalDomains);
+    if (!p.patternKey.startsWith("tld:")) {
+      maxSpecificSampleSize = Math.max(maxSpecificSampleSize, p.totalDomains);
+    }
   }
+
+  const effectiveSampleSize =
+    maxSpecificSampleSize > 0 ? maxSpecificSampleSize : maxAnySampleSize;
 
   if (totalWeight > 0) {
     weightedScarcity /= totalWeight;

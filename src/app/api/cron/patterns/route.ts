@@ -14,7 +14,10 @@ export async function GET(req: Request) {
 
   const db = createDb();
   const { patternsUpdated } = await refreshAllPatternMetrics(db);
-  const { scored } = await recomputePredictionsBatch(db, { chunkSize: 500 });
+  const { scored, stoppedForBudget } = await recomputePredictionsBatch(db, {
+    chunkSize: 500,
+    budgetMs: 240_000,
+  });
 
-  return NextResponse.json({ patternsUpdated, scored });
+  return NextResponse.json({ patternsUpdated, scored, stoppedForBudget });
 }

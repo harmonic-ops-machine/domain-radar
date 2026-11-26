@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { SUPPORTED_TLDS, type FeatureContribution, type TldCode } from "@/lib/types";
 
 export interface ExplorerDomainRow {
@@ -34,19 +34,22 @@ export function DomainExplorer({
 }: DomainExplorerProps) {
   const [items, setItems] = useState<ExplorerDomainRow[]>(initialItems);
   const [nextCursor, setNextCursor] = useState<string | null>(initialNextCursor);
-  const [status, setStatus] = useState<string>("available");
+  const [status, setStatus] = useState<string>("all");
   const [tld, setTld] = useState<string>("all");
   const [q, setQ] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const isFirstRender = useRef(true);
 
-  async function fetchPage(cursor: string | null, append: boolean) {
+  async function fetchPage(cursor: string | null, append: boolean, patternOverride?: string | null) {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (status !== "all") params.set("status", status);
       if (tld !== "all") params.set("tld", tld);
-      if (activePattern) params.set("pattern", activePattern);
+      const effectivePattern =
+        patternOverride !== undefined ? patternOverride : activePattern;
+      if (effectivePattern) params.set("pattern", effectivePattern);
       if (q.trim()) params.set("q", q.trim());
       if (cursor) params.set("cursor", cursor);
       params.set("limit", "50");
@@ -63,6 +66,15 @@ export function DomainExplorer({
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    void fetchPage(null, false, activePattern);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePattern]);
 
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">

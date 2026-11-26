@@ -15,6 +15,8 @@ export function resolveDriver(url: string): DatabaseDriver {
 
 export type Database = ReturnType<typeof drizzlePg<typeof schema>>;
 
+const dbCache = new Map<string, Database>();
+
 export function createDb(options?: {
   url?: string;
   driver?: DatabaseDriver;
@@ -27,10 +29,18 @@ export function createDb(options?: {
     );
   }
   const driver = options?.driver ?? resolveDriver(connectionString);
+  const cacheKey = `${driver}:${connectionString}`;
+  const cached = dbCache.get(cacheKey);
+  if (cached) return cached;
+
+  let instance: Database;
   if (driver === "neon") {
     const pool = new NeonPool({ connectionString });
-    return drizzleNeon(pool, { schema }) as unknown as Database;
+    instance = drizzleNeon(pool, { schema }) as unknown as Database;
+  } else {
+    const pool = new PgPool({ connectionString });
+    instance = drizzlePg(pool, { schema });
   }
-  const pool = new PgPool({ connectionString });
-  return drizzlePg(pool, { schema });
+  dbCache.set(cacheKey, instance);
+  return instance;
 }

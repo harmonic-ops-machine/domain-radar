@@ -174,8 +174,17 @@ export async function queryRdap(
     }
 
     if (res.status === 429 || res.status === 503) {
-      const header = res.headers.get("Retry-After");
-      const retryAfterSeconds = header && /^\d+$/.test(header) ? Number(header) : 60;
+      const header = res.headers.get("Retry-After")?.trim() ?? "";
+      let retryAfterSeconds = 60;
+      if (/^\d+$/.test(header)) {
+        retryAfterSeconds = Number(header);
+      } else if (header) {
+        const parsedDate = Date.parse(header);
+        if (!Number.isNaN(parsedDate)) {
+          retryAfterSeconds = Math.ceil((parsedDate - Date.now()) / 1000);
+        }
+      }
+      retryAfterSeconds = Math.max(1, Math.min(3600, retryAfterSeconds));
       opts.guard.tripCooldown(host, retryAfterSeconds);
       return {
         ok: false,

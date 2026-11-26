@@ -24,6 +24,7 @@ const VERIFIED_TRUTH_REAL_100 = [
   "truthrealindex.com", "truthrealwire.com", "truthrealpress.com", "truthrealcheck.com",
   "truthrealproof.com", "truthrealaudit.com", "truthrealsignal.com", "truthrealforge.com",
   "truthrealrecord.com", "truthrealledger.com", "truthrealbrief.com", "truthrealwatch.com",
+  "truthrealguard.com",
   "truthledger.ai", "truthrecord.ai", "truthnotary.ai", "truthcanon.ai",
   "starktruth.ai", "baretruth.ai", "groundedtruth.ai", "realledger.ai",
   "realproof.ai", "realaudit.ai", "realbeacon.ai", "strictlyreal.ai",
@@ -104,15 +105,15 @@ async function main() {
 
   const target = Number(process.env.SEED_COUNT ?? 100_000);
   console.log(`Generating and upserting ${target.toLocaleString()} domains...`);
-  const all = generateCombinatorialDomains(target).filter(
-    (d) => !VERIFIED_TRUTH_REAL_100.includes(d)
-  );
+  const hotSet = new Set(VERIFIED_TRUTH_REAL_100);
+  const all = generateCombinatorialDomains(target).filter((d) => !hotSet.has(d));
   const res = await bulkUpsertDomains(db, all, {
     chunkSize: MAX_CHUNK_SIZE,
     tier: "cold",
     watched: false,
   });
   console.log("Seed complete:", res);
+  process.exit(0);
 }
 
 if (require.main === module) {

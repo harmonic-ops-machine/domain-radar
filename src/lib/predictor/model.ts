@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import type { Database } from "@/db";
 import { domainPatterns, domains, patterns, valuePredictions } from "@/db/schema";
 import type { PatternMetrics } from "@/lib/patterns/tracker";
@@ -134,9 +134,11 @@ export function scoreDomain(input: ScoreDomainInput): PredictionOutput {
 
 export async function recomputePredictionsBatch(
   db: Database,
-  opts?: { chunkSize?: number; now?: Date }
-): Promise<{ scored: number }> {
+  opts?: { chunkSize?: number; budgetMs?: number; now?: Date }
+): Promise<{ scored: number; stoppedForBudget: boolean }> {
   const chunkSize = Math.max(1, Math.min(opts?.chunkSize ?? 500, 500));
+  const budgetMs = opts?.budgetMs ?? 240_000;
+  const startedAt = Date.now();
   const now = opts?.now ?? new Date();
 
   const allPatterns = await db.select().from(patterns);
@@ -158,22 +160,47 @@ export async function recomputePredictionsBatch(
     });
   }
 
-  const allDomains = await db.select().from(domains);
-  const registeredComSlds = new Set<string>(
-    allDomains
-      .filter((d) => d.tld === ".com" && d.status === "registered")
-      .map((d) => d.sld)
-  );
-
   let scored = 0;
-  for (let i = 0; i < allDomains.length; i += chunkSize) {
-    const slice = allDomains.slice(i, i + chunkSize);
-    const ids = slice.map((d) => d.id);
-    const links = await db
-      .select()
-      .from(domainPatterns)
-      .where(inArray(domainPatterns.domainId, ids));
+  let lastId = 0;
+  let stoppedForBudget = false;
 
+  while (true) {
+    if (Date.now() - startedAt >= budgetMs) {
+      stoppedForBudget = true;
+      break;
+    }
+
+    const slice = await db
+      .select()
+      .from(domains)
+      .where(sql`${domains.id} > ${lastId}`)
+      .orderBy(domains.id)
+      .limit(chunkSize);
+
+    if (slice.length === 0) break;
+    lastId = slice[slice.length - 1].id;
+
+    const ids = slice.map((d) => d.id);
+    const nonComSlds = Array.from(
+      new Set(slice.filter((d) => d.tld !== ".com").map((d) => d.sld))
+    );
+
+    const [links, comMatches] = await Promise.all([
+      db
+        .select()
+        .from(domainPatterns)
+        .where(inArray(domainPatterns.domainId, ids)),
+      nonComSlds.length > 0
+        ? db
+            .select({ sld: domains.sld })
+            .from(domains)
+            .where(
+              sql`${domains.tld} = '.com' AND ${domains.status} = 'registered' AND ${inArray(domains.sld, nonComSlds)}`
+            )
+        : Promise.resolve([]),
+    ]);
+
+    const registeredComSlds = new Set(comMatches.map((m) => m.sld));
     const byDomain = new Map<number, PatternMetrics[]>();
     for (const link of links) {
       const m = patternMap.get(link.patternKey);
@@ -183,7 +210,9 @@ export async function recomputePredictionsBatch(
       byDomain.set(link.domainId, list);
     }
 
+    const updateTuples = [];
     const predRows = [];
+
     for (const d of slice) {
       const tld = d.tld as TldCode;
       const fiveYrTcoUsd =
@@ -208,16 +237,14 @@ export async function recomputePredictionsBatch(
         matchedPatterns: byDomain.get(d.id) ?? [],
       });
 
-      await db
-        .update(domains)
-        .set({
-          estimatedValueUsd: pred.estimatedFairValueUsd,
-          predicted12mGrowthPct: pred.predicted12mGrowthPct,
-          net5yrRoiMultiple: pred.net5yrRoiMultiple,
-          confidence: pred.confidence,
-          updatedAt: now,
-        })
-        .where(eq(domains.id, d.id));
+      updateTuples.push(sql`(
+        ${d.id}::bigint,
+        ${pred.estimatedFairValueUsd}::double precision,
+        ${pred.predicted12mGrowthPct}::double precision,
+        ${pred.net5yrRoiMultiple}::double precision,
+        ${pred.confidence}::double precision,
+        ${JSON.stringify(pred.topDrivers)}::jsonb
+      )`);
 
       predRows.push({
         domainId: pred.domainId,
@@ -234,10 +261,24 @@ export async function recomputePredictionsBatch(
       scored += 1;
     }
 
-    if (predRows.length > 0) {
+    if (updateTuples.length > 0) {
+      await db.execute(sql`
+        UPDATE domains AS d
+        SET
+          estimated_value_usd = v.estimated_value_usd,
+          predicted_12m_growth_pct = v.predicted_12m_growth_pct,
+          net_5yr_roi_multiple = v.net_5yr_roi_multiple,
+          confidence = v.confidence,
+          top_drivers = v.top_drivers,
+          updated_at = ${now.toISOString()}::timestamptz
+        FROM (VALUES ${sql.join(updateTuples, sql`, `)}) AS v(
+          id, estimated_value_usd, predicted_12m_growth_pct, net_5yr_roi_multiple, confidence, top_drivers
+        )
+        WHERE d.id = v.id
+      `);
       await db.insert(valuePredictions).values(predRows);
     }
   }
 
-  return { scored };
+  return { scored, stoppedForBudget };
 }
