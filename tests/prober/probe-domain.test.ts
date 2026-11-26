@@ -114,4 +114,42 @@ describe("2-stage DNS + authoritative RDAP prober", () => {
     );
     expect(out.retryAfterSeconds).toBeLessThanOrEqual(3600);
   });
+
+  it("uses authoritative WHOIS fallback for .co instead of broken RDAP 404 stub", async () => {
+    const fetchFn = vi.fn();
+    const whoisFn = vi
+      .fn()
+      .mockResolvedValueOnce(
+        "Domain Name: T.CO\r\nRegistry Expiry Date: 2027-04-25T23:59:59.0Z\r\nRegistrar: CSC Corporate Domains\r\nAccess to the Whois and RDAP services is rate limited.\r\n"
+      )
+      .mockResolvedValueOnce("The queried object does not exist: DOMAIN NOT FOUND\r\n");
+
+    const reg = await probeDomain(
+      { fqdn: "t.co", tld: ".co", previousStatus: "unknown", lastRdapAt: null },
+      {
+        dnsResolveNs: async () => ["ns1.t.co"],
+        fetchFn,
+        whoisFn,
+        guard: new RegistryRateGuard(),
+      }
+    );
+    expect(reg.status).toBe("registered");
+    expect(reg.registrar).toBe("CSC Corporate Domains");
+    expect(fetchFn).not.toHaveBeenCalled();
+
+    const avail = await probeDomain(
+      { fqdn: "zz-unregistered.co", tld: ".co", previousStatus: "unknown", lastRdapAt: null },
+      {
+        dnsResolveNs: async () => {
+          throw Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" });
+        },
+        fetchFn,
+        whoisFn,
+        guard: new RegistryRateGuard(),
+      }
+    );
+    expect(avail.status).toBe("available");
+    expect(avail.changed).toBe(true);
+    expect(whoisFn).toHaveBeenCalledTimes(2);
+  });
 });

@@ -1,3 +1,4 @@
+import net from "node:net";
 import type { DomainStatus, TldCode } from "@/lib/types";
 
 export const RDAP_ENDPOINTS: Record<TldCode, string> = {
@@ -10,6 +11,111 @@ export const RDAP_ENDPOINTS: Record<TldCode, string> = {
   ".app": "https://pubapi.registry.google/rdap/domain/{fqdn}",
   ".dev": "https://pubapi.registry.google/rdap/domain/{fqdn}",
 };
+
+/**
+ * ccTLDs whose public RDAP endpoint is absent or returns 404 stubs even for
+ * registered domains use their authoritative TCP/43 registry WHOIS host instead.
+ */
+export const WHOIS_FALLBACK_HOSTS: Partial<Record<TldCode, string>> = {
+  ".co": "whois.registry.co",
+};
+
+export type WhoisResolver = (
+  host: string,
+  fqdn: string,
+  timeoutMs: number
+) => Promise<string>;
+
+function defaultWhoisQuery(
+  host: string,
+  fqdn: string,
+  timeoutMs: number
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host, port: 43 }, () => {
+      socket.write(`${fqdn}\r\n`);
+    });
+    let body = "";
+    socket.setEncoding("utf8");
+    socket.setTimeout(timeoutMs, () => {
+      socket.destroy(Object.assign(new Error("WHOIS_TIMEOUT"), { code: "WHOIS_TIMEOUT" }));
+    });
+    socket.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 64_000) {
+        socket.destroy();
+      }
+    });
+    socket.on("end", () => resolve(body));
+    socket.on("error", (err) => reject(err));
+  });
+}
+
+function parseWhoisBody(body: string): RdapCheckResult {
+  if (/^Domain Name:\s*.+/im.test(body)) {
+    let status: DomainStatus = "registered";
+    const statusMatches = body.match(/^Domain Status:.*$/gim) ?? [];
+    const lowerStatuses = statusMatches.map((line) => line.toLowerCase());
+    if (lowerStatuses.some((s) => s.includes("redemption"))) {
+      status = "redemption";
+    } else if (lowerStatuses.some((s) => s.includes("renewperiod") || s.includes("grace"))) {
+      status = "grace";
+    }
+
+    const registrarMatch = body.match(/^Registrar:\s*(.+)$/im);
+    const registrar = registrarMatch ? registrarMatch[1].trim() : null;
+
+    const expiryMatch = body.match(/^Registry Expiry Date:\s*(.+)$/im);
+    let expiresAt: Date | null = null;
+    if (expiryMatch) {
+      const parsed = new Date(expiryMatch[1].trim());
+      if (!Number.isNaN(parsed.getTime())) {
+        expiresAt = parsed;
+      }
+    }
+
+    return {
+      ok: true,
+      status,
+      registrar,
+      expiresAt,
+      httpStatus: null,
+      errorCode: null,
+      retryAfterSeconds: null,
+    };
+  }
+  if (/DOMAIN NOT FOUND|No Data Found|object does not exist/i.test(body)) {
+    return {
+      ok: true,
+      status: "available",
+      registrar: null,
+      expiresAt: null,
+      httpStatus: null,
+      errorCode: null,
+      retryAfterSeconds: null,
+    };
+  }
+  if (/quota\s*exceeded|too\s*many\s*requests|limit\s*exceeded|rate\s*limit/i.test(body)) {
+    return {
+      ok: false,
+      status: null,
+      registrar: null,
+      expiresAt: null,
+      httpStatus: null,
+      errorCode: "WHOIS_RATE_LIMIT",
+      retryAfterSeconds: 60,
+    };
+  }
+  return {
+    ok: false,
+    status: null,
+    registrar: null,
+    expiresAt: null,
+    httpStatus: null,
+    errorCode: "WHOIS_PARSE_ERROR",
+    retryAfterSeconds: null,
+  };
+}
 
 export interface RdapCheckResult {
   ok: boolean;
@@ -129,10 +235,52 @@ export async function queryRdap(
   tld: TldCode,
   opts: {
     fetchFn?: typeof fetch;
+    whoisFn?: WhoisResolver;
     guard: RegistryRateGuard;
     timeoutMs?: number;
   }
 ): Promise<RdapCheckResult> {
+  const whoisHost = WHOIS_FALLBACK_HOSTS[tld];
+  if (whoisHost) {
+    const slot = opts.guard.tryAcquire(whoisHost);
+    if (!slot.acquired) {
+      return {
+        ok: false,
+        status: null,
+        registrar: null,
+        expiresAt: null,
+        httpStatus: null,
+        errorCode: slot.reason ?? "CIRCUIT_OPEN",
+        retryAfterSeconds: slot.retryAfterSeconds ?? 60,
+      };
+    }
+    try {
+      const whoisFn = opts.whoisFn ?? defaultWhoisQuery;
+      const raw = await whoisFn(whoisHost, fqdn, opts.timeoutMs ?? 4_000);
+      const parsed = parseWhoisBody(raw);
+      if (parsed.errorCode === "WHOIS_RATE_LIMIT") {
+        opts.guard.tripCooldown(whoisHost, parsed.retryAfterSeconds ?? 60);
+      }
+      return parsed;
+    } catch (err) {
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? String((err as { code?: unknown }).code)
+          : "WHOIS_NETWORK_ERROR";
+      return {
+        ok: false,
+        status: null,
+        registrar: null,
+        expiresAt: null,
+        httpStatus: null,
+        errorCode: code === "WHOIS_TIMEOUT" ? "WHOIS_TIMEOUT" : "WHOIS_NETWORK_ERROR",
+        retryAfterSeconds: null,
+      };
+    } finally {
+      opts.guard.release(whoisHost);
+    }
+  }
+
   const url = RDAP_ENDPOINTS[tld].replace("{fqdn}", encodeURIComponent(fqdn));
   const host = new URL(url).host;
   const slot = opts.guard.tryAcquire(host);
