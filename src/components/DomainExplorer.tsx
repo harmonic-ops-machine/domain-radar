@@ -94,6 +94,9 @@ export function DomainExplorer({
             placeholder="Filter domain..."
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void fetchPage(null, false);
+            }}
             className="rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-slate-100 placeholder:text-slate-500"
           />
           <select

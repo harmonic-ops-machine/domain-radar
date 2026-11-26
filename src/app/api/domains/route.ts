@@ -36,7 +36,27 @@ export async function GET(req: Request) {
 
   const db = createDb();
   const rows = await db
-    .select()
+    .select({
+      id: domains.id,
+      fqdn: domains.fqdn,
+      sld: domains.sld,
+      tld: domains.tld,
+      length: domains.length,
+      tokens: domains.tokens,
+      archetype: domains.archetype,
+      status: domains.status,
+      tier: domains.tier,
+      registrar: domains.registrar,
+      expiresAt: domains.expiresAt,
+      lastCheckedAt: domains.lastCheckedAt,
+      fiveYrTcoUsd: domains.fiveYrTcoUsd,
+      estimatedValueUsd: domains.estimatedValueUsd,
+      predicted12mGrowthPct: domains.predicted12mGrowthPct,
+      net5yrRoiMultiple: domains.net5yrRoiMultiple,
+      confidence: domains.confidence,
+      topDrivers: domains.topDrivers,
+      watched: domains.watched,
+    })
     .from(domains)
     .where(spec.where)
     .orderBy(

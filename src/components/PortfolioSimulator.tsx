@@ -42,12 +42,24 @@ export function PortfolioSimulator({
     return { rows, year1, fiveYr, predicted5YrValue, netRoiMultiple };
   }, [selectedDomains, registrar, inflationPct]);
 
+  const escapeCsv = (val: string | number) => {
+    const s = String(val);
+    const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+    return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+  };
+
   const handleExportCsv = () => {
     const header = "fqdn,tld,registrar,year1_usd,five_yr_tco_usd,predicted_5yr_value_usd\n";
     const body = summary.rows
-      .map(
-        (r) =>
-          `${r.fqdn},${r.tld},${r.registrar},${r.year1Usd.toFixed(2)},${r.fiveYrTotalUsd.toFixed(2)},${r.dampedValue.toFixed(2)}`
+      .map((r) =>
+        [
+          escapeCsv(r.fqdn),
+          escapeCsv(r.tld),
+          escapeCsv(r.registrar),
+          r.year1Usd.toFixed(2),
+          r.fiveYrTotalUsd.toFixed(2),
+          r.dampedValue.toFixed(2),
+        ].join(",")
       )
       .join("\n");
     const blob = new Blob([header + body], { type: "text/csv;charset=utf-8;" });
