@@ -1,0 +1,2 @@
+ALTER TABLE "domains" ADD COLUMN "top_drivers" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+CREATE INDEX "idx_domains_status_tld_growth" ON "domains" USING btree ("status","tld","predicted_12m_growth_pct","id");
