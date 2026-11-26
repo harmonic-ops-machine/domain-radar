@@ -1,6 +1,6 @@
 import type { DomainStatus, TldCode } from "@/lib/types";
 import { checkDnsDelegation, type DnsResolver } from "./dns";
-import { queryRdap, type RegistryRateGuard } from "./rdap";
+import { queryRdap, type RegistryRateGuard, type WhoisResolver } from "./rdap";
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -14,6 +14,7 @@ export interface ProbeInput {
 export interface ProbeDeps {
   dnsResolveNs?: DnsResolver;
   fetchFn?: typeof fetch;
+  whoisFn?: WhoisResolver;
   guard: RegistryRateGuard;
   nowFn?: () => Date;
 }
@@ -74,6 +75,7 @@ export async function probeDomain(
 
   const rdap = await queryRdap(input.fqdn, input.tld, {
     fetchFn: deps.fetchFn,
+    whoisFn: deps.whoisFn,
     guard: deps.guard,
   });
 
