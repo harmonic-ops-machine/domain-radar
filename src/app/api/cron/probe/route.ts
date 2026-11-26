@@ -11,11 +11,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const db = createDb();
-  const result = await processWorkerTick(db, {
-    budgetMs: 240_000,
-    batchSize: 40,
-  });
-
-  return NextResponse.json(result);
+  try {
+    const db = createDb();
+    const result = await processWorkerTick(db, {
+      budgetMs: 240_000,
+      batchSize: 40,
+    });
+    return NextResponse.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Probe worker failed";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
