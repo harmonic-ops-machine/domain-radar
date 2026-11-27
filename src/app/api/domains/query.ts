@@ -1,5 +1,6 @@
 import { and, eq, gte, ilike, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { domains } from "@/db/schema";
+import { CLUSTER_MORPHEMES } from "@/lib/rivalry/regimes";
 import type { DomainCursor } from "@/lib/types";
 
 export const NULL_GROWTH_SENTINEL = -999999;
@@ -11,6 +12,7 @@ export interface DomainFilterParams {
   status?: string | null;
   tld?: string | null;
   pattern?: string | null;
+  cluster?: string | null;
   minGrowth?: number | null;
   minValue?: number | null;
   verifiedOnly?: boolean;
@@ -105,6 +107,16 @@ export function buildDomainWhereClause(
     predicates.push(
       sql`EXISTS (SELECT 1 FROM domain_patterns dp WHERE dp.domain_id = ${domains.id} AND dp.pattern_key = ${params.pattern.trim()})`
     );
+  }
+  if (
+    params.cluster === "REALITY" ||
+    params.cluster === "JUSTICE" ||
+    params.cluster === "COMPOSABILITY"
+  ) {
+    const morphemes = CLUSTER_MORPHEMES[params.cluster];
+    const clusterPreds = morphemes.map((m) => ilike(domains.sld, `%${m}%`));
+    const combined = or(...clusterPreds);
+    if (combined) predicates.push(combined);
   }
 
   let hasKeysetPredicate = false;

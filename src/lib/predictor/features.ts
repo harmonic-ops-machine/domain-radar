@@ -47,6 +47,10 @@ const TIER1_COMMERCIAL_TOKENS = new Set([
   "bond", "agent", "truth", "real", "vault", "cyber", "quantum", "alpha",
   "core", "prime", "labs", "hq", "os", "neural", "vector", "chain", "mint",
   "trade", "cash", "credit", "health", "bio", "auto", "home", "insure",
+  // REALITY / JUSTICE / COMPOSABILITY high-conviction clusters
+  "reality", "verity", "provenance", "groundtruth", "justice", "tribunal",
+  "fiduciary", "sovereign", "composable", "interop", "functor", "manifold",
+  "fabric", "federated",
 ]);
 
 const TIER2_BRAND_TOKENS = new Set([
@@ -55,6 +59,8 @@ const TIER2_BRAND_TOKENS = new Set([
   "guard", "watch", "trace", "index", "stack", "layer", "mesh", "node",
   "clear", "plain", "direct", "exact", "smart", "swift", "rapid", "deep",
   "high", "free", "omni", "hyper", "nova", "orbit", "solar", "terra",
+  "attest", "sim2real", "worldmesh", "causal", "redress", "charter",
+  "arbitrate", "docket", "lex", "morphism", "conduit", "weave", "graft",
 ]);
 
 function computePronounceability(sld: string): number {

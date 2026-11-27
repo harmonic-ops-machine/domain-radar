@@ -18,6 +18,7 @@ export async function GET(req: Request) {
   const status = searchParams.get("status");
   const tld = searchParams.get("tld");
   const pattern = searchParams.get("pattern");
+  const cluster = searchParams.get("cluster");
   const q = searchParams.get("q");
   const sortRaw = searchParams.get("sort");
   const sort: DomainSortMode = sortRaw === "value" ? "value" : "growth";
@@ -36,6 +37,7 @@ export async function GET(req: Request) {
     status,
     tld,
     pattern,
+    cluster,
     minGrowth,
     minValue,
     verifiedOnly,

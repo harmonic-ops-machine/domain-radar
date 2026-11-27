@@ -1,0 +1,32 @@
+name: Neon Branch + Vercel Preview
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  preview-with-neon-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Isolated Neon Copy-on-Write Branch
+        id: create-branch
+        uses: neondatabase/create-branch-action@v5
+        with:
+          project_id: ${{ secrets.NEON_PROJECT_ID }}
+          branch_name: preview/pr-${{ github.event.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+      - name: Apply Rivalry & Lexical SQL Migration
+        run: psql "${{ steps.create-branch.outputs.db_url }}" -f ./migrations/20261126_rivalry_lexical_rates.sql
+
+      - name: Build & Push Preview to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npm install -g vercel@66.0.0
+          vercel pull --yes --environment=preview
+          vercel build
+          vercel deploy --prebuilt --yes --env DATABASE_URL="${{ steps.create-branch.outputs.db_url }}"

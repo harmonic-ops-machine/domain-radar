@@ -5,6 +5,12 @@ import {
   buildDomainOfferLinks,
   getVerificationProofUrl,
 } from "@/lib/offers/sources";
+import {
+  applyRivalryValuation,
+  type LexicalCluster,
+  type RivalryRegime,
+  type RivalryRegimeSlug,
+} from "@/lib/rivalry/regimes";
 import { SUPPORTED_TLDS, type FeatureContribution, type TldCode } from "@/lib/types";
 
 export interface ExplorerDomainRow {
@@ -31,6 +37,9 @@ interface DomainExplorerProps {
   initialNextCursor: string | null;
   initialTab?: ExplorerTab;
   activePattern: string | null;
+  activeCluster?: Exclude<LexicalCluster, "CORE"> | null;
+  activeRegime?: RivalryRegimeSlug;
+  regimes?: RivalryRegime[];
   selectedIds: Set<number>;
   onToggleSelect: (row: ExplorerDomainRow) => void;
 }
@@ -70,6 +79,9 @@ export function DomainExplorer({
   initialNextCursor,
   initialTab = "available",
   activePattern,
+  activeCluster = null,
+  activeRegime = "expected_blended",
+  regimes,
   selectedIds,
   onToggleSelect,
 }: DomainExplorerProps) {
@@ -93,6 +105,7 @@ export function DomainExplorer({
       tab?: ExplorerTab;
       sort?: "growth" | "value";
       pattern?: string | null;
+      cluster?: Exclude<LexicalCluster, "CORE"> | null;
       tld?: string;
       q?: string;
     }
@@ -105,6 +118,8 @@ export function DomainExplorer({
       const effQ = overrides?.q ?? q;
       const effPattern =
         overrides && "pattern" in overrides ? overrides.pattern : activePattern;
+      const effCluster =
+        overrides && "cluster" in overrides ? overrides.cluster : activeCluster;
 
       const params = new URLSearchParams();
       if (effTab === "available") {
@@ -116,6 +131,7 @@ export function DomainExplorer({
       params.set("sort", effSort);
       if (effTld !== "all") params.set("tld", effTld);
       if (effPattern) params.set("pattern", effPattern);
+      if (effCluster) params.set("cluster", effCluster);
       if (effQ.trim()) params.set("q", effQ.trim());
       if (cursor) params.set("cursor", cursor);
       params.set("limit", "50");
@@ -179,9 +195,12 @@ export function DomainExplorer({
       isFirstRender.current = false;
       return;
     }
-    void fetchPage(null, false, { pattern: activePattern });
+    void fetchPage(null, false, {
+      pattern: activePattern,
+      cluster: activeCluster,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePattern]);
+  }, [activePattern, activeCluster]);
 
   return (
     <section className="dr-card p-4">
@@ -351,11 +370,18 @@ export function DomainExplorer({
             ) : (
               items.map((row) => {
                 const isExpanded = expandedId === row.id;
+                const rivalry = applyRivalryValuation({
+                  fqdn: row.fqdn,
+                  baseValueUsd: row.estimatedValueUsd,
+                  fiveYrTcoUsd: row.fiveYrTcoUsd,
+                  regimeSlug: activeRegime,
+                  regimes,
+                });
                 const offers = buildDomainOfferLinks({
                   fqdn: row.fqdn,
                   tld: row.tld,
                   status: row.status,
-                  estimatedValueUsd: row.estimatedValueUsd,
+                  estimatedValueUsd: rivalry.adjustedValueUsd,
                 });
                 const verified = formatVerifiedAgo(row.lastCheckedAt);
                 const proof = getVerificationProofUrl(row.fqdn, row.tld);
@@ -399,7 +425,23 @@ export function DomainExplorer({
                         />
                       </td>
                       <td className="py-2.5 pr-3 font-bold">
-                        <div>{row.fqdn}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span>{row.fqdn}</span>
+                          {rivalry.cluster !== "CORE" && (
+                            <span
+                              className="px-1.5 py-0.5 font-sans text-[9px] font-black uppercase"
+                              style={{
+                                backgroundColor: "var(--dr-subtle-bg)",
+                                color: "var(--dr-accent)",
+                                border: "1px solid var(--dr-border)",
+                                borderRadius: "var(--dr-radius)",
+                              }}
+                              title={`Lexical Cluster: ${rivalry.cluster} (${rivalry.multiplier.toFixed(2)}x active rivalry multiplier)`}
+                            >
+                              {rivalry.cluster} {rivalry.multiplier.toFixed(2)}x
+                            </span>
+                          )}
+                        </div>
                         {row.registrar && (
                           <div
                             className="font-sans text-[10px] font-normal truncate max-w-[160px]"
@@ -455,7 +497,12 @@ export function DomainExplorer({
                         </div>
                       </td>
                       <td className="py-2.5 pr-3 text-right font-bold">
-                        {formatUsd(row.estimatedValueUsd)}
+                        <div>{formatUsd(rivalry.adjustedValueUsd)}</div>
+                        {rivalry.multiplier !== 1 && (
+                          <div className="text-[10px] font-normal" style={{ color: "var(--dr-muted)" }}>
+                            base {formatUsd(row.estimatedValueUsd)}
+                          </div>
+                        )}
                       </td>
                       <td
                         className="py-2.5 pr-3 text-right"
