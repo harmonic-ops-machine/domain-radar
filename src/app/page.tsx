@@ -65,7 +65,7 @@ async function loadDashboardData() {
 
   try {
     const db = createDb();
-    const [verifiedAvailRows, topPatterns, latestRuns, statsRes] =
+    const [verifiedAvailRows, topPatterns, latestRuns, approxRes, countsRes] =
       await Promise.all([
         db
           .select()
@@ -86,19 +86,23 @@ async function loadDashboardData() {
           .from(workerRuns)
           .orderBy(desc(workerRuns.startedAt))
           .limit(1),
+        db.execute(
+          sql`SELECT reltuples::bigint AS approx FROM pg_class WHERE relname = 'domains' LIMIT 1`
+        ),
         db.execute(sql`
           SELECT
-            (SELECT reltuples::bigint FROM pg_class WHERE relname = 'domains') AS approx_total,
             COUNT(*) FILTER (WHERE status = 'available' AND last_checked_at IS NOT NULL)::int AS verified_avail,
             COUNT(*) FILTER (WHERE status IN ('registered','grace','redemption') OR estimated_value_usd >= 2000)::int AS expensive_count
           FROM domains
         `),
       ]);
 
-    const statRow = (
-      statsRes as unknown as {
+    const approxRow = (
+      approxRes as unknown as { rows?: Array<{ approx?: string | number }> }
+    ).rows?.[0];
+    const countRow = (
+      countsRes as unknown as {
         rows?: Array<{
-          approx_total?: string | number;
           verified_avail?: string | number;
           expensive_count?: string | number;
         }>;
@@ -131,13 +135,13 @@ async function loadDashboardData() {
           })
         : null;
 
-    const approxNum = Number(statRow?.approx_total ?? -1);
+    const approxNum = Number(approxRow?.approx ?? -1);
 
     return {
       connected: true,
       totalTracked: approxNum >= 0 ? approxNum : sliced.length,
-      verifiedAvailableCount: Number(statRow?.verified_avail ?? 0),
-      expensiveCount: Number(statRow?.expensive_count ?? 0),
+      verifiedAvailableCount: Number(countRow?.verified_avail ?? 0),
+      expensiveCount: Number(countRow?.expensive_count ?? 0),
       lastRunStatus: latestRuns[0]
         ? `${latestRuns[0].status} (${latestRuns[0].claimedCount} probed)`
         : "Ready for live probe",
@@ -161,7 +165,8 @@ async function loadDashboardData() {
       initialNextCursor: nextCursor,
       initialPatterns: topPatterns,
     };
-  } catch {
+  } catch (err) {
+    console.error("[loadDashboardData]", err);
     return {
       connected: false,
       totalTracked: 100_000,
