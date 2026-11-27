@@ -5,6 +5,7 @@ import type { PatternMetrics } from "@/lib/patterns/tracker";
 import { DomainExplorer, type ExplorerDomainRow } from "./DomainExplorer";
 import { PatternRadar } from "./PatternRadar";
 import { PortfolioSimulator } from "./PortfolioSimulator";
+import { RivalryShockMatrix } from "./RivalryShockMatrix";
 
 interface CommandCenterClientProps {
   initialDomains: ExplorerDomainRow[];
@@ -47,6 +48,7 @@ export function CommandCenterClient({
 
   return (
     <div className="space-y-6">
+      <RivalryShockMatrix />
       <PortfolioSimulator selectedDomains={selectedForSim} />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-3">

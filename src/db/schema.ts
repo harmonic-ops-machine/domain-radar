@@ -221,3 +221,33 @@ export const tldPricing = pgTable("tld_pricing", {
     .notNull()
     .defaultNow(),
 });
+
+export const tldRateBenchmarks = pgTable(
+  "tld_rate_benchmarks",
+  {
+    tld: text("tld").notNull(),
+    registrar: text("registrar").notNull(),
+    regYear1Usd: doublePrecision("reg_year1_usd").notNull(),
+    renewAnnualUsd: doublePrecision("renew_annual_usd").notNull(),
+    minTermYears: integer("min_term_years").notNull().default(1),
+    restoreFeeUsd: doublePrecision("restore_fee_usd").notNull().default(40.0),
+    verifiedAt: text("verified_at").notNull().default("2026-11-26"),
+  },
+  (table) => [primaryKey({ columns: [table.tld, table.registrar] })]
+);
+
+export const aiRivalryRegimes = pgTable("ai_rivalry_regimes", {
+  regimeSlug: text("regime_slug").primaryKey(),
+  label: text("label").notNull(),
+  realityMult: doublePrecision("reality_mult").notNull(),
+  justiceMult: doublePrecision("justice_mult").notNull(),
+  composabilityMult: doublePrecision("composability_mult").notNull(),
+  activeProbability: doublePrecision("active_probability").notNull(),
+});
+
+export const lexicalClusterSeeds = pgTable("lexical_cluster_seeds", {
+  morpheme: text("morpheme").primaryKey(),
+  cluster: text("cluster").notNull(),
+  patternRule: text("pattern_rule").notNull(),
+  priorWeight: doublePrecision("prior_weight").notNull(),
+});
