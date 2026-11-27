@@ -7,6 +7,8 @@ import {
   decodeCursor,
   encodeCursor,
   NULL_GROWTH_SENTINEL,
+  NULL_VALUE_SENTINEL,
+  type DomainSortMode,
 } from "./query";
 
 export const dynamic = "force-dynamic";
@@ -17,9 +19,15 @@ export async function GET(req: Request) {
   const tld = searchParams.get("tld");
   const pattern = searchParams.get("pattern");
   const q = searchParams.get("q");
+  const sortRaw = searchParams.get("sort");
+  const sort: DomainSortMode = sortRaw === "value" ? "value" : "growth";
+  const verifiedOnly = searchParams.get("verifiedOnly") === "true";
   const minGrowthRaw = searchParams.get("minGrowth");
   const minGrowth =
     minGrowthRaw !== null && minGrowthRaw !== "" ? Number(minGrowthRaw) : null;
+  const minValueRaw = searchParams.get("minValue");
+  const minValue =
+    minValueRaw !== null && minValueRaw !== "" ? Number(minValueRaw) : null;
   const limitRaw = searchParams.get("limit");
   const limit = limitRaw ? Number(limitRaw) : 50;
   const cursor = decodeCursor(searchParams.get("cursor"));
@@ -28,13 +36,21 @@ export async function GET(req: Request) {
     status,
     tld,
     pattern,
-    q,
     minGrowth,
+    minValue,
+    verifiedOnly,
+    sort,
+    q,
     cursor,
     limit,
   });
 
   const db = createDb();
+  const orderExpr =
+    spec.sort === "value"
+      ? sql`COALESCE(${domains.estimatedValueUsd}, ${NULL_VALUE_SENTINEL}) DESC`
+      : sql`COALESCE(${domains.predicted12mGrowthPct}, ${NULL_GROWTH_SENTINEL}) DESC`;
+
   const rows = await db
     .select({
       id: domains.id,
@@ -59,10 +75,7 @@ export async function GET(req: Request) {
     })
     .from(domains)
     .where(spec.where)
-    .orderBy(
-      sql`COALESCE(${domains.predicted12mGrowthPct}, ${NULL_GROWTH_SENTINEL}) DESC`,
-      desc(domains.id)
-    )
+    .orderBy(orderExpr, desc(domains.id))
     .limit(spec.limit + 1);
 
   const hasMore = rows.length > spec.limit;
@@ -71,7 +84,10 @@ export async function GET(req: Request) {
   const nextCursor =
     hasMore && last
       ? encodeCursor({
-          sortValue: last.predicted12mGrowthPct ?? NULL_GROWTH_SENTINEL,
+          sortValue:
+            spec.sort === "value"
+              ? (last.estimatedValueUsd ?? NULL_VALUE_SENTINEL)
+              : (last.predicted12mGrowthPct ?? NULL_GROWTH_SENTINEL),
           id: last.id,
         })
       : null;

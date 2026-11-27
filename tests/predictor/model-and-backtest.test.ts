@@ -122,4 +122,25 @@ describe("explainable value-increase predictor & backtester", () => {
     });
     expect(res.confidence).toBeLessThan(0.25);
   });
+
+  it("values short Tier-1 commercial .com brands like openai.com in the $50k+ aftermarket tier without vowel penalty", () => {
+    const res = scoreDomain({
+      domainId: 99,
+      fqdn: "openai.com",
+      sld: "openai",
+      tld: ".com",
+      tokens: ["open", "ai"],
+      archetype: "COMPOUND_2WORD",
+      hasHyphen: false,
+      hasDigit: false,
+      fiveYrTcoUsd: 59.3,
+      comCounterpartRegistered: false,
+      status: "registered",
+      snapshotAgeDays: 0,
+      matchedPatterns: [
+        { patternKey: "suffix:ai:.com", totalDomains: 500, availableCount: 50, registeredCount: 450, absorption7d: 0.05, absorption30d: 0.2, shrunkAbsorption30d: 0.18, dropRate30d: 0.01, scarcityRatio: 0.9, compPriceSlope: 0.25, trendZScore: 2.0, momentumScore: 85 },
+      ],
+    });
+    expect(res.estimatedFairValueUsd).toBeGreaterThan(50_000);
+  });
 });

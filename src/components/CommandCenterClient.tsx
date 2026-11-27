@@ -9,12 +9,14 @@ import { PortfolioSimulator } from "./PortfolioSimulator";
 interface CommandCenterClientProps {
   initialDomains: ExplorerDomainRow[];
   initialNextCursor: string | null;
+  initialTab?: "available" | "expensive" | "all";
   initialPatterns: PatternMetrics[];
 }
 
 export function CommandCenterClient({
   initialDomains,
   initialNextCursor,
+  initialTab = "available",
   initialPatterns,
 }: CommandCenterClientProps) {
   const [activePattern, setActivePattern] = useState<string | null>(null);
@@ -47,17 +49,18 @@ export function CommandCenterClient({
     <div className="space-y-6">
       <PortfolioSimulator selectedDomains={selectedForSim} />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-4">
+        <div className="lg:col-span-3">
           <PatternRadar
             patterns={initialPatterns}
             activePattern={activePattern}
             onSelectPattern={setActivePattern}
           />
         </div>
-        <div className="lg:col-span-8">
+        <div className="lg:col-span-9">
           <DomainExplorer
             initialItems={initialDomains}
             initialNextCursor={initialNextCursor}
+            initialTab={initialTab}
             activePattern={activePattern}
             selectedIds={selectedIds}
             onToggleSelect={handleToggleSelect}

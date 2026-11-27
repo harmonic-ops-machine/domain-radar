@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { PortfolioSimulator } from "@/components/PortfolioSimulator";
 import { PatternRadar } from "@/components/PatternRadar";
+import { DomainExplorer } from "@/components/DomainExplorer";
 
 describe("Command Center UI components", () => {
   it("recalculates 5-year TCO and net ROI when switching registrar in PortfolioSimulator", () => {
@@ -58,5 +59,38 @@ describe("Command Center UI components", () => {
     );
     expect(screen.getByText("prefix:truth:.ai")).toBeTruthy();
     expect(screen.getByText(/25 avail/i)).toBeTruthy();
+  });
+
+  it("renders verified timestamp, Available/Expensive tabs, and multi-source buy links in DomainExplorer", () => {
+    render(
+      <DomainExplorer
+        initialItems={[
+          {
+            id: 1,
+            fqdn: "truthcipher.com",
+            tld: ".com",
+            status: "available",
+            tier: "hot",
+            lastCheckedAt: new Date().toISOString(),
+            fiveYrTcoUsd: 59.3,
+            estimatedValueUsd: 1650,
+            predicted12mGrowthPct: 28,
+            net5yrRoiMultiple: 12.4,
+            confidence: 0.82,
+            topDrivers: [],
+          },
+        ]}
+        initialNextCursor={null}
+        initialTab="available"
+        activePattern={null}
+        selectedIds={new Set()}
+        onToggleSelect={() => {}}
+      />
+    );
+    expect(screen.getByText("Verified Available (Buy Now)")).toBeTruthy();
+    expect(screen.getByText(/Expensive & Aftermarket/i)).toBeTruthy();
+    expect(screen.getByText("Just now")).toBeTruthy();
+    expect(screen.getByText("Porkbun ↗")).toBeTruthy();
+    expect(screen.getByText("Cloudflare ↗")).toBeTruthy();
   });
 });

@@ -10,7 +10,7 @@ import type {
 } from "@/lib/types";
 import { buildFeatureVector } from "./features";
 
-export const MODEL_VERSION = "v1-ridge-explainable";
+export const MODEL_VERSION = "v2-powerlaw-market";
 
 export interface ScoreDomainInput {
   domainId: number;
@@ -23,6 +23,7 @@ export interface ScoreDomainInput {
   hasDigit: boolean;
   fiveYrTcoUsd: number;
   comCounterpartRegistered: boolean;
+  status?: string;
   snapshotAgeDays: number;
   matchedPatterns: PatternMetrics[];
 }
@@ -52,9 +53,15 @@ export function scoreDomain(input: ScoreDomainInput): PredictionOutput {
     (0.7 + 0.3 * f.pronounceabilityScore) *
     (1 - f.cleanCharPenalty * 0.65);
 
-  const scarcityMultiplier = 1 + f.weightedScarcity * 0.55;
+  const scarcityMultiplier = 1 + f.weightedScarcity * 0.65;
+  const rawEstimatedFairValueUsd =
+    f.tldBaseValueUsd *
+    intrinsicMultiplier *
+    f.powerLawMultiplier *
+    f.keywordPremiumMultiplier *
+    scarcityMultiplier;
   const estimatedFairValueUsd = Number(
-    Math.max(25, f.tldBaseValueUsd * intrinsicMultiplier * scarcityMultiplier).toFixed(2)
+    Math.max(25, rawEstimatedFairValueUsd).toFixed(2)
   );
 
   // Regularized dynamic 12-month growth drivers (%)
@@ -233,6 +240,7 @@ export async function recomputePredictionsBatch(
         hasDigit: d.hasDigit,
         fiveYrTcoUsd,
         comCounterpartRegistered: registeredComSlds.has(d.sld),
+        status: d.status,
         snapshotAgeDays: ageDays,
         matchedPatterns: byDomain.get(d.id) ?? [],
       });

@@ -1,14 +1,20 @@
-import { and, eq, gte, ilike, sql, type SQL } from "drizzle-orm";
+import { and, eq, gte, ilike, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { domains } from "@/db/schema";
 import type { DomainCursor } from "@/lib/types";
 
 export const NULL_GROWTH_SENTINEL = -999999;
+export const NULL_VALUE_SENTINEL = -1;
+
+export type DomainSortMode = "growth" | "value";
 
 export interface DomainFilterParams {
   status?: string | null;
   tld?: string | null;
   pattern?: string | null;
   minGrowth?: number | null;
+  minValue?: number | null;
+  verifiedOnly?: boolean;
+  sort?: DomainSortMode;
   q?: string | null;
   cursor?: DomainCursor | null;
   limit?: number;
@@ -17,6 +23,7 @@ export interface DomainFilterParams {
 export interface DomainQuerySpec {
   where: SQL | undefined;
   limit: number;
+  sort: DomainSortMode;
   hasKeysetPredicate: boolean;
   usesOffset: false;
   nullSafeSort: true;
@@ -58,10 +65,22 @@ export function buildDomainWhereClause(
   params: DomainFilterParams
 ): DomainQuerySpec {
   const predicates: SQL[] = [];
+  const sort: DomainSortMode = params.sort === "value" ? "value" : "growth";
 
-  if (params.status && params.status !== "all") {
+  if (params.status === "expensive") {
+    const cond = or(
+      inArray(domains.status, ["registered", "grace", "redemption"]),
+      gte(domains.estimatedValueUsd, 2000)
+    );
+    if (cond) predicates.push(cond);
+  } else if (params.status && params.status !== "all") {
     predicates.push(eq(domains.status, params.status));
   }
+
+  if (params.verifiedOnly) {
+    predicates.push(isNotNull(domains.lastCheckedAt));
+  }
+
   if (params.tld && params.tld !== "all") {
     predicates.push(eq(domains.tld, params.tld));
   }
@@ -71,6 +90,13 @@ export function buildDomainWhereClause(
     Number.isFinite(params.minGrowth)
   ) {
     predicates.push(gte(domains.predicted12mGrowthPct, params.minGrowth));
+  }
+  if (
+    params.minValue !== null &&
+    params.minValue !== undefined &&
+    Number.isFinite(params.minValue)
+  ) {
+    predicates.push(gte(domains.estimatedValueUsd, params.minValue));
   }
   if (params.q && params.q.trim().length > 0) {
     predicates.push(ilike(domains.fqdn, `%${params.q.trim().toLowerCase()}%`));
@@ -84,9 +110,12 @@ export function buildDomainWhereClause(
   let hasKeysetPredicate = false;
   if (params.cursor) {
     hasKeysetPredicate = true;
-    const growthExpr = sql`COALESCE(${domains.predicted12mGrowthPct}, ${NULL_GROWTH_SENTINEL})`;
+    const sortExpr =
+      sort === "value"
+        ? sql`COALESCE(${domains.estimatedValueUsd}, ${NULL_VALUE_SENTINEL})`
+        : sql`COALESCE(${domains.predicted12mGrowthPct}, ${NULL_GROWTH_SENTINEL})`;
     predicates.push(
-      sql`(${growthExpr} < ${params.cursor.sortValue} OR (${growthExpr} = ${params.cursor.sortValue} AND ${domains.id} < ${params.cursor.id}))`
+      sql`(${sortExpr} < ${params.cursor.sortValue} OR (${sortExpr} = ${params.cursor.sortValue} AND ${domains.id} < ${params.cursor.id}))`
     );
   }
 
@@ -95,6 +124,7 @@ export function buildDomainWhereClause(
   return {
     where: predicates.length > 0 ? and(...predicates) : undefined,
     limit,
+    sort,
     hasKeysetPredicate,
     usesOffset: false,
     nullSafeSort: true,
