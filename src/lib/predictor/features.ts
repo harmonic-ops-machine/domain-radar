@@ -1,5 +1,5 @@
 import type { PatternMetrics } from "@/lib/patterns/tracker";
-import type { PatternArchetype, TldCode } from "@/lib/types";
+import type { DomainStatus, PatternArchetype, TldCode } from "@/lib/types";
 
 export interface FeatureInput {
   sld: string;
@@ -115,7 +115,7 @@ function computeKeywordPremiumMultiplier(tokens: string[], status?: string): num
 }
 
 export function buildFeatureVector(input: FeatureInput): DomainFeatureVector {
-  const tldBaseValueUsd = TLD_BASE_VALUE[input.tld] ?? 150;
+  const tldBaseValueUsd = TLD_BASE_VALUE[input.tld] ?? 180;
   const lengthScore = computeLengthScore(input.sld.length);
   const powerLawMultiplier = computePowerLawMultiplier(
     input.sld.length,
@@ -141,6 +141,17 @@ export function buildFeatureVector(input: FeatureInput): DomainFeatureVector {
       : input.archetype === "COMPOUND_3PLUS"
       ? 0.55
       : 0.3;
+
+  // Registered ultra-short clean .com/.ai brands command established aftermarket multiples
+  const brandAuthorityMultiplier =
+    input.status === "registered" &&
+    !input.hasHyphen &&
+    !input.hasDigit &&
+    input.sld.length <= 8
+      ? input.tld === ".com"
+        ? 2.2
+        : 1.5
+      : 1.0;
 
   const patterns = input.matchedPatterns;
   let maxShrunkAbsorption30d = 0;
@@ -181,6 +192,9 @@ export function buildFeatureVector(input: FeatureInput): DomainFeatureVector {
 
   const estimatedBase =
     tldBaseValueUsd *
+    lengthPowerMultiplier *
+    commercialKeywordMultiplier *
+    brandAuthorityMultiplier *
     (0.5 + 0.5 * lengthScore) *
     (0.6 + 0.4 * wordQualityScore) *
     (1 - cleanCharPenalty * 0.6);

@@ -183,6 +183,33 @@ export function DomainExplorer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePattern]);
 
+  const applyPreset = (next: "available" | "expensive" | "all") => {
+    setPreset(next);
+    if (next === "available") {
+      setStatus("available");
+      setVerifiedOnly(true);
+      setSort("value");
+      void fetchPage(null, false, {
+        status: "available",
+        verifiedOnly: true,
+        sort: "value",
+      });
+    } else if (next === "expensive") {
+      setStatus("all");
+      setVerifiedOnly(false);
+      setSort("value");
+      void fetchPage(null, false, {
+        status: "all",
+        verifiedOnly: false,
+        sort: "value",
+      });
+    } else {
+      setStatus("all");
+      setVerifiedOnly(false);
+      void fetchPage(null, false, { status: "all", verifiedOnly: false });
+    }
+  };
+
   return (
     <section className="dr-card p-4">
       {/* Mode Switcher Tabs: Verified Available vs Expensive/Aftermarket vs Full 100k */}
@@ -302,7 +329,29 @@ export function DomainExplorer({
             disabled={loading}
             className="dr-btn-primary px-3 py-1 text-xs font-bold cursor-pointer disabled:opacity-50"
           >
-            {loading ? "Loading..." : "Apply"}
+            Verified Available
+          </button>
+          <button
+            type="button"
+            onClick={() => applyPreset("expensive")}
+            className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+              preset === "expensive"
+                ? "bg-amber-600 text-white"
+                : "border border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+            }`}
+          >
+            Expensive / Premium ($)
+          </button>
+          <button
+            type="button"
+            onClick={() => applyPreset("all")}
+            className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+              preset === "all"
+                ? "bg-sky-600 text-white"
+                : "border border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+            }`}
+          >
+            All Domains
           </button>
         </div>
       </div>
