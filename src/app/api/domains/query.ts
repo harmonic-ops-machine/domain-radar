@@ -16,15 +16,12 @@ export interface DomainFilterParams {
   verifiedOnly?: boolean;
   sort?: DomainSortMode;
   q?: string | null;
-  sort?: DomainSortMode | null;
   cursor?: DomainCursor | null;
   limit?: number;
 }
 
 export interface DomainQuerySpec {
   where: SQL | undefined;
-  sort: DomainSortMode;
-  sortExpr: SQL;
   limit: number;
   sort: DomainSortMode;
   hasKeysetPredicate: boolean;
@@ -59,18 +56,9 @@ export function decodeCursor(raw: string | null): DomainCursor | null {
   }
 }
 
-export function sanitizeLimit(
-  raw: number | undefined,
-  fallback = 50,
-  max = 100
-): number {
+export function sanitizeLimit(raw: number | undefined, fallback = 50, max = 100): number {
   if (raw === undefined || !Number.isFinite(raw)) return fallback;
   return Math.max(1, Math.min(Math.floor(raw), max));
-}
-
-export function resolveSortMode(raw: string | null | undefined): DomainSortMode {
-  if (raw === "growth" || raw === "roi" || raw === "value") return raw;
-  return "value";
 }
 
 export function buildDomainWhereClause(
@@ -119,15 +107,6 @@ export function buildDomainWhereClause(
     );
   }
 
-  const sortCol =
-    sort === "value"
-      ? domains.estimatedValueUsd
-      : sort === "roi"
-      ? domains.net5yrRoiMultiple
-      : domains.predicted12mGrowthPct;
-
-  const sortExpr = sql`COALESCE(${sortCol}, ${NULL_SORT_SENTINEL})`;
-
   let hasKeysetPredicate = false;
   if (params.cursor) {
     hasKeysetPredicate = true;
@@ -144,8 +123,6 @@ export function buildDomainWhereClause(
 
   return {
     where: predicates.length > 0 ? and(...predicates) : undefined,
-    sort,
-    sortExpr,
     limit,
     sort,
     hasKeysetPredicate,

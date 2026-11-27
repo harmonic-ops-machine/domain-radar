@@ -81,13 +81,6 @@ export async function GET(req: Request) {
   const hasMore = rows.length > spec.limit;
   const items = hasMore ? rows.slice(0, spec.limit) : rows;
   const last = items[items.length - 1];
-  const lastSortVal =
-    last && spec.sort === "value"
-      ? last.estimatedValueUsd
-      : last && spec.sort === "roi"
-      ? last.net5yrRoiMultiple
-      : last?.predicted12mGrowthPct;
-
   const nextCursor =
     hasMore && last
       ? encodeCursor({

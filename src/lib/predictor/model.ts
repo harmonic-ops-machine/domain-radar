@@ -25,7 +25,6 @@ export interface ScoreDomainInput {
   comCounterpartRegistered: boolean;
   status?: string;
   snapshotAgeDays: number;
-  status?: string;
   matchedPatterns: PatternMetrics[];
 }
 
@@ -49,9 +48,6 @@ export function scoreDomain(input: ScoreDomainInput): PredictionOutput {
   const f = buildFeatureVector(input);
 
   const intrinsicMultiplier =
-    f.lengthPowerMultiplier *
-    f.commercialKeywordMultiplier *
-    f.brandAuthorityMultiplier *
     (0.45 + 0.55 * f.lengthScore) *
     (0.55 + 0.45 * f.wordQualityScore) *
     (0.7 + 0.3 * f.pronounceabilityScore) *
@@ -246,7 +242,6 @@ export async function recomputePredictionsBatch(
         comCounterpartRegistered: registeredComSlds.has(d.sld),
         status: d.status,
         snapshotAgeDays: ageDays,
-        status: d.status,
         matchedPatterns: byDomain.get(d.id) ?? [],
       });
 
