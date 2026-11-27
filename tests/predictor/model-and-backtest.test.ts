@@ -122,4 +122,23 @@ describe("explainable value-increase predictor & backtester", () => {
     });
     expect(res.confidence).toBeLessThan(0.25);
   });
+
+  it("values ultra-premium short Tier-1 .com brands like openai.com in the $100k+ tier", () => {
+    const openai = scoreDomain({
+      domainId: 99,
+      fqdn: "openai.com",
+      sld: "openai",
+      tld: ".com",
+      tokens: ["open", "ai"],
+      archetype: "COMPOUND_2WORD",
+      hasHyphen: false,
+      hasDigit: false,
+      fiveYrTcoUsd: 59.3,
+      comCounterpartRegistered: true,
+      snapshotAgeDays: 1,
+      status: "registered",
+      matchedPatterns: [],
+    });
+    expect(openai.estimatedFairValueUsd).toBeGreaterThanOrEqual(100_000);
+  });
 });

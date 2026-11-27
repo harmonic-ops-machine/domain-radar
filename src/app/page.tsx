@@ -111,8 +111,11 @@ async function loadDashboardData() {
       db
         .select()
         .from(domains)
+        .where(
+          sql`${domains.status} = 'available' AND ${domains.lastCheckedAt} IS NOT NULL`
+        )
         .orderBy(
-          sql`COALESCE(${domains.predicted12mGrowthPct}, -999999) DESC`,
+          sql`COALESCE(${domains.estimatedValueUsd}, -999999) DESC`,
           desc(domains.id)
         )
         .limit(51),
@@ -137,7 +140,7 @@ async function loadDashboardData() {
     const nextCursor =
       hasMore && last
         ? encodeCursor({
-            sortValue: last.predicted12mGrowthPct ?? -999999,
+            sortValue: last.estimatedValueUsd ?? -999999,
             id: last.id,
           })
         : null;
@@ -150,7 +153,7 @@ async function loadDashboardData() {
     return {
       connected: true,
       totalTracked: approxNum >= 0 ? approxNum : sliced.length,
-      availableCount: sliced.filter((d) => d.status === "available").length,
+      availableCount: sliced.length,
       lastRunStatus: latestRuns[0]
         ? `${latestRuns[0].status} (${latestRuns[0].claimedCount} claimed)`
         : "Ready for first cron tick",
@@ -160,6 +163,7 @@ async function loadDashboardData() {
         tld: d.tld as TldCode,
         status: d.status,
         tier: d.tier,
+        lastCheckedAt: d.lastCheckedAt ? d.lastCheckedAt.toISOString() : null,
         fiveYrTcoUsd: d.fiveYrTcoUsd,
         estimatedValueUsd: d.estimatedValueUsd,
         predicted12mGrowthPct: d.predicted12mGrowthPct,
