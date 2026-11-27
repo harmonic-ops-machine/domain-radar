@@ -1,7 +1,9 @@
 import type { PatternArchetype, TldCode } from "@/lib/types";
 
 const MORPHEME_LEXICON = [
-  "anchored", "archive", "attested", "bedrock", "caliper", "chronicle",
+  "groundtruth", "provenance", "composable", "fiduciary", "chronicle",
+  "anchored", "archive", "attested", "bedrock", "caliper", "tribunal",
+  "manifold", "reality", "justice", "functor", "interop", "redress",
   "compass", "factual", "foundry", "granite", "grounded", "horizon",
   "literal", "meridian", "network", "provable", "quantum", "receipts",
   "receipt", "stamped", "strictly", "tangible", "verified", "verdict",

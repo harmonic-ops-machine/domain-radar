@@ -15,6 +15,13 @@
       "when": 1795729950673,
       "tag": "0001_wide_kinsey_walden",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795739363846,
+      "tag": "0002_naive_shooting_star",
+      "breakpoints": true
     }
   ]
 }
